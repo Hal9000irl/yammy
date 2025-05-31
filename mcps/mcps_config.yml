@@ -1,0 +1,96 @@
+# mcps_config.yml
+# Configuration for the AiEmpath Model Context Protocol Server (MCPS) Platform
+
+api_server:
+  host: "0.0.0.0"
+  port: 8000 # Port for the MCPS API server itself
+  log_level: "INFO" # DEBUG, INFO, WARNING, ERROR
+  # workers: 4 # Number of Uvicorn workers for production
+
+redis:
+  url: "redis://localhost:6379/0" # Primary Redis for context, caching, etc.
+  max_connections: 50
+  # For Redis Sentinel (High Availability)
+  # sentinel_enabled: false
+  # sentinel_master_name: "mymaster"
+  # sentinel_hosts: ["redis-sentinel1:26379", "redis-sentinel2:26379"]
+
+message_bus:
+  type: "in_memory" # Options: "in_memory", "redis_pubsub", "kafka"
+  # kafka_settings:
+  #   bootstrap_servers: "kafka1:9092,kafka2:9092"
+  #   default_topic_prefix: "mcps_events"
+  # redis_pubsub_settings: # Uses the main Redis connection above
+  #   channel_prefix: "mcps_pubsub:"
+
+context_repository:
+  default_ttl_seconds: 3600 # Default TTL for context data
+  time_series_retention_days: 7 # For simulated time-series data
+
+agent_profiles: # Configuration for the MARL agents managing the MCPS platform
+  ScaleGuardian:
+    cpu_threshold_high: 0.80
+    cpu_threshold_low: 0.25
+    max_replicas_target_service: 15 # Max replicas for the services MCPS manages
+    min_replicas_target_service: 2
+    observation_keys:
+      - "platform_metrics:cluster_summary"
+      # - "kubernetes_api:deployment_status:voice_agent_core" # Example if MCPS manages K8s
+  SecOpsSentinel:
+    critical_alert_threshold: 1
+    scan_frequency_minutes: 60
+    observation_keys:
+      - "security_audits:latest_report"
+      - "active_threats:summary"
+  # ... other MARL agent profiles (DeployMaster, OpsCommander, etc.)
+
+context_ingestion_sources: # Data sources for the MCPS platform itself
+  platform_metrics_simulation:
+    enabled: true
+    type: "platform_metrics_simulation" # Internal simulator type
+    interval_sec: 30
+    context_key: "platform_metrics:cluster_summary"
+  # kubernetes_api_integration: # Example for real K8s integration
+  #   enabled: false
+  #   type: "kubernetes_api"
+  #   api_server_url: "https://kubernetes.default.svc"
+  #   interval_sec: 60
+  #   context_key_prefix: "kubernetes_api"
+  security_audit_results_ingestion: # To ingest results from mcp_securit_audit.py
+    enabled: true
+    type: "file_poller" # Example: Poll a directory for new audit reports
+    path: "/var/log/mcps_security_audits/"
+    interval_sec: 3600
+    context_key: "security_audits:latest_report"
+
+observability:
+  metrics_endpoint_enabled: true # For Prometheus to scrape MCPS /metrics
+  # tracing_enabled: false # Placeholder for OpenTelemetry
+  # tracing_collector_endpoint: "http://jaeger:14268/api/traces"
+
+performance_tuning:
+  connection_pooling:
+    http_max_connections: 100
+    http_timeout_seconds: 30
+  caching:
+    memory_max_size_items: 1000
+    memory_default_ttl_seconds: 300
+    redis_cache_prefix: "mcps_cache:"
+  batch_processing:
+    default_batch_size: 100
+    default_flush_interval_seconds: 5.0
+
+security_framework:
+  jwt_secret_key: "your-super-secret-and-long-mcps-jwt-key" # CHANGE THIS IN PRODUCTION
+  jwt_algorithm: "HS256"
+  jwt_token_expire_minutes: 30
+  # default_auth_required: true # For API endpoints
+
+tenancy: # Configuration for multi-tenant capabilities
+  enabled: false # Set to true to activate multi-tenancy features
+  database_url: "postgresql://user:password@host:port/mcps_tenants_db" # Example
+  default_tier: "starter"
+  # Further tier limit definitions can be here or loaded dynamically
+
+# Paths to model weights or other large assets (if MCPS itself uses any ML)
+# model_assets_base_path: "/srv/mcps_models/"
