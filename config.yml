@@ -7,10 +7,6 @@ application:
   orchestrator_port: 8000
 
 # --- Infrastructure/Gateway ---
-twilio_service:
-  account_sid: "" # Your Twilio Account SID
-  auth_token: ""          # Your Twilio Auth Token
-  default_caller_id: ""             # Default phone number for outbound calls
 
 # --- Input Processing ---
 speech_to_text_service:
