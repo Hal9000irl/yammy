@@ -41,7 +41,7 @@ empathy_specialist_service:
   #   model_path: "path/to/moel_model_weights"
   #   glove_embeddings_path: "path/to/glove.6B.300d.txt"
   # custom_llm_empathy_settings:
-  #   model_uri: "your_empathy_llm_uri_or_path"
+  #   model_uri: "your_empathy_lllm_uri_or_path"
   #   api_key: "your_llm_provider_key_if_applicable"
 
 generic_sales_skill_service:
