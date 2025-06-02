@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, Response
 import yaml
 from response_generation_services import TextToSpeechService
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
@@ -8,6 +9,14 @@ app = FastAPI()
 with open("config.yml", "r") as f:
     config = yaml.safe_load(f)
 tts_service = TextToSpeechService(config)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.post("/api/tts")
 async def tts(request: Request):

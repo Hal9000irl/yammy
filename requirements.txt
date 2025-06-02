@@ -1,12 +1,9 @@
 fastapi
 uvicorn
 pydantic
-torch
 tqdm
 pyyaml
-aioredis  # optional, for Redis-based message bus
+aioredis
 requests
 deepgram-sdk==2.12.0
-pytest
-pytest-asyncio
-httpx 
+httpx
