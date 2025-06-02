@@ -8,9 +8,9 @@ application:
 
 # --- Infrastructure/Gateway ---
 twilio_service:
-  account_sid: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" # Your Twilio Account SID
-  auth_token: "your_twilio_auth_token"          # Your Twilio Auth Token
-  default_caller_id: "+15551234567"             # Default phone number for outbound calls
+  account_sid: "" # Your Twilio Account SID
+  auth_token: ""          # Your Twilio Auth Token
+  default_caller_id: ""             # Default phone number for outbound calls
 
 # --- Input Processing ---
 speech_to_text_service:
@@ -27,7 +27,7 @@ acoustic_emotion_analyzer_service:
 
 # --- Core Logic / Dialogue Management ---
 rasa_service:
-  server_url: "http://localhost:5005" # URL of your Rasa server
+  server_url: "rasa_server" # URL of your Rasa server
   # model_path: "/path/to/your/rasa_model.tar.gz"
 
 # --- Specialist Modules / Tools ---
@@ -61,8 +61,8 @@ real_estate_knowledge_service:
       type: "postgresql"
       host: "localhost"
       port: 5432
-      user: "mls_user"
-      password: "mls_password"
+      user: ""
+      password: ""
       database_name: "mls_data"
     regional_metrics_db:
       type: "sqlite"
@@ -84,21 +84,21 @@ natural_language_generation_service:
     # n_gpu_layers: 0
     # context_size: 2048
   # openai_gpt_settings:
-  #   api_key: "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  #   api_key: ""
   #   model_name: "gpt-3.5-turbo"
   # anthropic_claude_settings:
-  #   api_key: "claude_api_key_xxxxxxxxxxxx"
+  #   api_key: ""
   #   model_name: "claude-2"
 
 text_to_speech_service:
   provider: "elevenlabs"
   elevenlabs_settings:
     api_key: "${ELEVENLABS_API_KEY}"
-    default_voice_id: "Rachel"
+    default_voice_id: "name"
 
 # --- MCPS Platform Integration (Optional - if agent is part of an MCPS) ---
 # mcps_integration:
 #   enabled: false
-#   mcps_server_url: "http://localhost:8080"
+#   mcps_server_url: "local_url"
 #   agent_id_on_mcps: "RealEstateSalesAgent_001"
 #   metrics_push_interval_seconds: 60
