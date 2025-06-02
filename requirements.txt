@@ -7,3 +7,4 @@ aioredis
 requests
 deepgram-sdk==2.12.0
 httpx
+python-multipart
