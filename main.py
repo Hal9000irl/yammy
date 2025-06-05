@@ -5,7 +5,10 @@ import yaml
 import time # For simulation delays
 import threading
 import asyncio
-# from run_mcps_agent import main as run_mcps # Temporarily commented out to isolate ServiceManager test
+import os # For os.getenv
+import re # For regex parsing of placeholders
+
+# from run_mcps_agent import main as run_mcps # Temporarily commented out
 
 # Import services from their respective files
 from infrastructure_services import TwilioService, SimulatedAudioStream
@@ -15,8 +18,48 @@ from specialist_empathy_service import EmpathySpecialistService
 from specialist_sales_services import GenericSalesSkillService, RealEstateKnowledgeService, SalesAgentService
 from response_generation_services import NaturalLanguageGenerationService, TextToSpeechService
 
+# Regex to match ${VAR_NAME:-DEFAULT_VALUE} or ${VAR_NAME}
+PLACEHOLDER_REGEX = re.compile(r"\$\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(?::-([^}]*))?\s*\}")
+
+def resolve_config_value(value_from_config, default_if_placeholder_not_set=None, target_type=str):
+    """
+    Resolves a configuration value that might be a placeholder.
+    Placeholders can be ${VAR_NAME} or ${VAR_NAME:-Default Value}.
+    """
+    if isinstance(value_from_config, str):
+        match = PLACEHOLDER_REGEX.fullmatch(value_from_config)
+        if match:
+            var_name = match.group(1)
+            placeholder_default = match.group(2)
+
+            env_value = os.getenv(var_name)
+            if env_value is not None:
+                resolved_value = env_value
+            elif placeholder_default is not None:
+                resolved_value = placeholder_default
+            else:
+                resolved_value = default_if_placeholder_not_set
+        else:
+            resolved_value = value_from_config
+    else:
+        resolved_value = value_from_config
+
+    if resolved_value is None:
+        return None
+    try:
+        if target_type == int:
+            return int(resolved_value)
+        elif target_type == bool:
+            if isinstance(resolved_value, str):
+                return resolved_value.lower() in ('true', 'yes', '1', 'on')
+            return bool(resolved_value)
+        return target_type(resolved_value)
+    except ValueError as e:
+        print(f"Warning: Could not cast resolved value '{resolved_value}' to {target_type}. Error: {e}. Returning as string or None.")
+        return str(resolved_value) if resolved_value is not None else None
+
+
 def load_config(config_path="config.yml"):
-    """Loads the YAML configuration file."""
     try:
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
@@ -30,9 +73,6 @@ def load_config(config_path="config.yml"):
         return None
 
 class ServiceManager:
-    """
-    Manages the initialization of all services required by the VoiceAgent.
-    """
     def __init__(self, config: dict, agent_type: str):
         if not config:
             raise ValueError("Configuration is required to initialize ServiceManager.")
@@ -41,76 +81,94 @@ class ServiceManager:
 
         print(f"\nServiceManager: Initializing services for agent type: {self.agent_type}...")
 
-        # Infrastructure
+        # Pass the entire global config to services that manage their own sub-config directly
         self.twilio_service = TwilioService(config=self.config)
-
-        # Input Processing
         self.stt_service = SpeechToTextService(config=self.config)
-        self.acoustic_analyzer_service = AcousticEmotionAnalyzerService(config=self.config)
-
-        # Core Logic
-        self.rasa_service = RasaService(config=self.config)
-
-        # Response Generation
         self.nlg_service = NaturalLanguageGenerationService(config=self.config)
         self.tts_service = TextToSpeechService(config=self.config)
-
-        # Base Specialist
         self.empathy_specialist_service = EmpathySpecialistService(config=self.config)
 
-        # Sales Components (loaded based on agent_type)
+        # Pass specific sub-configs to services that expect it
+        self.acoustic_analyzer_service = AcousticEmotionAnalyzerService(service_config=self.config.get('acoustic_emotion_analyzer_service', {}))
+        self.rasa_service = RasaService(service_config=self.config.get('rasa_service', {}))
+
         self.generic_sales_skill_service = None
         self.real_estate_knowledge_service = None
         self.sales_agent_specialist_service = None
 
         if "sales" in self.agent_type.lower():
-            self.generic_sales_skill_service = GenericSalesSkillService(config=self.config)
+            self.generic_sales_skill_service = GenericSalesSkillService(service_config=self.config.get('generic_sales_skill_service', {}))
             if "real_estate" in self.agent_type.lower():
-                self.real_estate_knowledge_service = RealEstateKnowledgeService(config=self.config)
+                self.real_estate_knowledge_service = RealEstateKnowledgeService(service_config=self.config.get('real_estate_knowledge_service', {}))
 
+            # SalesAgentService might need broader config access or specific parts, adjust as needed.
+            # For now, passing global config as it was before.
             self.sales_agent_specialist_service = SalesAgentService(
                 config=self.config,
                 generic_sales_service=self.generic_sales_skill_service,
                 real_estate_service=self.real_estate_knowledge_service
             )
-
         print(f"ServiceManager: Services initialization complete for {self.agent_type}.\n")
 
+class SpecialistDispatcher:
+    def __init__(self, service_manager: ServiceManager):
+        self.sm = service_manager
 
-class VoiceAgent:
-    """
-    The main orchestrator for the voice agent.
-    It initializes and coordinates all other services based on loaded configuration.
-    """
-    def __init__(self, config: dict, agent_type_override: str = None):
-        if not config:
-            raise ValueError("Configuration is required to initialize VoiceAgent.")
+    def dispatch(self, action_plan: dict, conversation_history: list,
+                 user_emotion_data: dict, sales_context: dict = None) -> tuple[str, str]:
+        response_text = ""
+        specialist_used = "N/A"
+        last_user_text = conversation_history[-1]['text'] if conversation_history and conversation_history[-1]['speaker'] == 'user' else ""
+
+        if action_plan.get("next_specialist") == "empathy_specialist":
+            specialist_used = "EmpathySpecialist"
+            response_text = self.sm.empathy_specialist_service.generate_empathetic_response(
+                context={"history": conversation_history, "user_intent": action_plan.get("intent")},
+                emotion_data=user_emotion_data
+            )
+        elif action_plan.get("next_specialist") == "sales_agent" and self.sm.sales_agent_specialist_service:
+            specialist_used = "SalesAgentSpecialist"
+            response_text = self.sm.sales_agent_specialist_service.generate_sales_response(
+                sales_context=sales_context,
+                user_input_details={"text": last_user_text,
+                                    "intent": action_plan.get("intent"),
+                                    "entities": action_plan.get("entities")},
+                emotion_data=user_emotion_data
+            )
+        elif action_plan.get("next_specialist") == "nlg_direct_answer":
+            specialist_used = "NLGService (Direct)"
+            prompt = f"User said: '{last_user_text}'. Dominant emotion: {user_emotion_data.get('dominant_emotion')}. Recent history: {conversation_history[-3:]}. Provide a concise, helpful response."
+            response_text = self.sm.nlg_service.generate_text_response(
+                prompt,
+                context_data={"last_user_utterance": last_user_text,
+                              "key_topics": action_plan.get("entities", {}).values()}
+            )
+        else:
+            specialist_used = "NLGService (Fallback)"
+            response_text = self.sm.nlg_service.generate_text_response(
+                f"I received: '{last_user_text}'. How can I further assist?",
+                context_data={"last_user_utterance": last_user_text}
+            )
+        return response_text, specialist_used
+
+class CallHandler:
+    def __init__(self, config: dict, service_manager: ServiceManager):
         self.config = config
+        self.sm = service_manager
+        self.specialist_dispatcher = SpecialistDispatcher(service_manager)
 
-        # Determine agent type: override > config > default
-        self.agent_type = agent_type_override if agent_type_override else self.config.get('application', {}).get('default_agent_type', "empathy_base")
-
-        print(f"\nInitializing VoiceAgent of type: {self.agent_type}...")
-
-        # Initialize ServiceManager
-        self.service_manager = ServiceManager(config=self.config, agent_type=self.agent_type)
-
-        print(f"VoiceAgent ({self.agent_type}) initialization complete.\n")
-
-    def simulate_call_interaction(self, call_sid: str, num_turns: int = 3):
-        """Simulates a call interaction for demonstration."""
-        print(f"--- Simulating Call {call_sid} with {self.agent_type} Agent ---")
-
-        # Access services via ServiceManager
-        sm = self.service_manager
-        audio_stream = sm.twilio_service.start_audio_stream(call_sid)
+    def run_simulation(self, call_sid: str, num_turns: int = 3):
+        print(f"--- Simulating Call {call_sid} (Handler) ---")
+        audio_stream = self.sm.twilio_service.start_audio_stream(call_sid)
         user_id = f"user_sim_{call_sid}"
         conversation_history = []
-
         sales_context = {}
-        if sm.sales_agent_specialist_service:
+
+        if self.sm.sales_agent_specialist_service:
+            sales_agent_service_config = self.config.get('sales_agent_service', {})
+            default_stage_raw = sales_agent_service_config.get('default_sales_stage', "greeting")
             sales_context = {
-                "stage": self.config.get('sales_agent_service',{}).get('default_sales_stage', "greeting"),
+                "stage": resolve_config_value(default_stage_raw, "greeting"),
                 "prospect_profile": {},
                 "current_property_discussion": None,
                 "call_history": []
@@ -118,78 +176,73 @@ class VoiceAgent:
 
         for turn in range(num_turns):
             print(f"\n[Turn {turn + 1}]")
-
-            user_audio_chunk = sm.twilio_service.receive_audio_from_caller(audio_stream)
+            user_audio_chunk = self.sm.twilio_service.receive_audio_from_caller(audio_stream)
             if not user_audio_chunk and turn > 0 :
                 print("User audio stream ended or user hung up.")
                 break
 
-            user_text = sm.stt_service.transcribe_audio_chunk(user_audio_chunk)
-            user_emotion_data = sm.acoustic_analyzer_service.analyze_emotion_from_audio(user_audio_chunk)
+            user_text = self.sm.stt_service.transcribe_audio_chunk(user_audio_chunk)
+            user_emotion_data = self.sm.acoustic_analyzer_service.analyze_emotion_from_audio(user_audio_chunk)
 
             print(f"User (Emotion: {user_emotion_data.get('dominant_emotion')}): {user_text}")
             conversation_history.append({"speaker": "user", "text": user_text, "emotion": user_emotion_data.get('dominant_emotion')})
-            if sm.sales_agent_specialist_service:
+            if self.sm.sales_agent_specialist_service:
                  sales_context["call_history"].append({"speaker": "user", "text": user_text})
 
-
-            action_plan = sm.rasa_service.process_user_message(user_id, user_text, user_emotion_data)
-            response_text = ""
-            specialist_used = "N/A"
-
-            if action_plan.get("next_specialist") == "empathy_specialist":
-                specialist_used = "EmpathySpecialist"
-                response_text = sm.empathy_specialist_service.generate_empathetic_response(
-                    context={"history": conversation_history, "user_intent": action_plan.get("intent")},
-                    emotion_data=user_emotion_data
-                )
-            elif action_plan.get("next_specialist") == "sales_agent" and sm.sales_agent_specialist_service:
-                specialist_used = "SalesAgentSpecialist"
-                response_text = sm.sales_agent_specialist_service.generate_sales_response(
-                    sales_context=sales_context,
-                    user_input_details={"text": user_text, "intent": action_plan.get("intent"), "entities": action_plan.get("entities")},
-                    emotion_data=user_emotion_data
-                )
-            elif action_plan.get("next_specialist") == "nlg_direct_answer":
-                specialist_used = "NLGService (Direct)"
-                prompt = f"User said: '{user_text}'. Dominant emotion: {user_emotion_data.get('dominant_emotion')}. Recent history: {conversation_history[-3:]}. Provide a concise, helpful response."
-                response_text = sm.nlg_service.generate_text_response(prompt, context_data={"last_user_utterance": user_text, "key_topics": action_plan.get("entities", {}).values()})
-            else:
-                specialist_used = "NLGService (Fallback)"
-                response_text = sm.nlg_service.generate_text_response(f"I received: '{user_text}'. How can I further assist?", context_data={"last_user_utterance": user_text})
+            action_plan = self.sm.rasa_service.process_user_message(user_id, user_text, user_emotion_data)
+            response_text, specialist_used = self.specialist_dispatcher.dispatch(
+                action_plan, conversation_history, user_emotion_data, sales_context
+            )
 
             print(f"Agent (using {specialist_used}, emotion hint: {action_plan.get('response_emotion_hint')}): {response_text}")
             conversation_history.append({"speaker": "agent", "text": response_text, "specialist": specialist_used})
-            if sm.sales_agent_specialist_service:
+            if self.sm.sales_agent_specialist_service:
                  sales_context["call_history"].append({"speaker": "agent", "text": response_text})
 
+            tts_service_config = self.config.get('text_to_speech_service', {})
+            # Assuming 'sesame_csm_settings' might not exist if provider is not sesame_csm
+            sesame_settings = tts_service_config.get('sesame_csm_settings', {})
+            default_voice = "professional_warm"
+            voice_profile_from_config = sesame_settings.get('default_voice_profile', default_voice)
 
-            agent_audio_chunk = sm.tts_service.synthesize_speech(
+            agent_audio_chunk = self.sm.tts_service.synthesize_speech(
                 response_text,
-                voice_profile=self.config.get('text_to_speech_service',{}).get('sesame_csm_settings',{}).get('default_voice_profile','professional_warm'),
+                voice_profile=voice_profile_from_config,
                 emotion_hint=action_plan.get("response_emotion_hint")
             )
-            sm.twilio_service.send_audio_to_caller(audio_stream, agent_audio_chunk)
+            self.sm.twilio_service.send_audio_to_caller(audio_stream, agent_audio_chunk)
 
             if action_plan.get("end_call"):
                 print("\nAgent determined it's time to end the call.")
                 break
-
             time.sleep(0.5)
 
         audio_stream.close()
-        print(f"--- Call Simulation {call_sid} Ended ---")
-        if sm.sales_agent_specialist_service:
+        print(f"--- Call Simulation {call_sid} Ended (Handler) ---")
+        if self.sm.sales_agent_specialist_service:
             print(f"Final Sales Context for {call_sid}: {sales_context}")
 
+class VoiceAgent:
+    def __init__(self, config: dict, agent_type_override: str = None):
+        if not config:
+            raise ValueError("Configuration is required to initialize VoiceAgent.")
+        self.config = config
+        application_config = self.config.get('application', {})
+        # Assuming 'default_agent_type' in config.yml is a direct value, not a placeholder
+        default_agent_type = application_config.get('default_agent_type', "empathy_base")
+        self.agent_type = agent_type_override if agent_type_override else default_agent_type
+
+        print(f"\nInitializing VoiceAgent of type: {self.agent_type}...")
+        self.service_manager = ServiceManager(config=self.config, agent_type=self.agent_type)
+        print(f"VoiceAgent ({self.agent_type}) initialization complete.\n")
+
+    def simulate_call_interaction(self, call_sid: str, num_turns: int = 3):
+        print(f"--- VoiceAgent delegating call {call_sid} for agent type {self.agent_type} ---")
+        call_handler = CallHandler(config=self.config, service_manager=self.service_manager)
+        call_handler.run_simulation(call_sid, num_turns)
 
 if __name__ == "__main__":
     app_config = load_config()
-
-    # Temporarily commented out MCPS integration to isolate ServiceManager test
-    # if app_config and app_config.get('mcps_integration', {}).get('enabled'):
-    #     threading.Thread(target=lambda: asyncio.run(run_mcps()), daemon=True).start()
-    #     print("MCPS integration enabled: starting MCPS agent in background.")
 
     if app_config:
         print("*"*10 + " DEMO: Base Empathetic Agent " + "*"*10)

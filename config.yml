@@ -13,56 +13,47 @@ speech_to_text_service:
   provider: "deepgram" # Default will fallback to simulation if DEEPGRAM_API_KEY is not set
   deepgram_settings:
     api_key: "${DEEPGRAM_API_KEY}"
-  # google_cloud_stt_settings: (removed, using Deepgram instead)
-  # assembly_ai_settings:
-  #   api_key: "your_assembly_ai_key"
 
 acoustic_emotion_analyzer_service:
-  model_path: "path/to/acoustic_emotion_model.pkl" # If you save/load a custom model
-  sample_rate: 22050 # Expected sample rate for audio input
+  model_path: "${ACOUSTIC_EMOTION_MODEL_PATH:-path/to/acoustic_emotion_model.pkl}"
+  sample_rate: 22050
 
 # --- Core Logic / Dialogue Management ---
 rasa_service:
-  server_url: "rasa_server" # URL of your Rasa server
+  server_url: "${RASA_SERVER_URL:-rasa_server}"
   # model_path: "/path/to/your/rasa_model.tar.gz"
 
 # --- Specialist Modules / Tools ---
 empathy_specialist_service:
-  provider: "topic_based_empathetic_chatbot" # Options: "topic_based_empathetic_chatbot", "moel", "custom_llm"
+  provider: "topic_based_empathetic_chatbot"
   topic_chatbot_settings:
     t5_chitchat_model_uri: "madhavappaneni/t5-small-chit-chat-conv"
     t5_empathetic_model_uri: "madhavappaneni/t5-small-empathetic-dialogue"
     gpt2_topical_model_uri: "madhavappaneni/gpt2-medium-topical-dialogue"
-  # moel_settings:
-  #   model_path: "path/to/moel_model_weights"
-  #   glove_embeddings_path: "path/to/glove.6B.300d.txt"
-  # custom_llm_empathy_settings:
-  #   model_uri: "your_empathy_lllm_uri_or_path"
-  #   api_key: "your_llm_provider_key_if_applicable"
 
 generic_sales_skill_service:
-  model_path: "path/to/generic_sales_model.pkl"
+  model_path: "${GENERIC_SALES_MODEL_PATH:-path/to/generic_sales_model.pkl}"
   playbooks:
     opening_scripts_path: "path/to/data/sales_training/opening_lines.csv"
     objection_handling_path: "path/to/data/sales_training/objection_responses.json"
     closing_techniques_path: "path/to/data/sales_training/closing_playbook.txt"
 
 real_estate_knowledge_service:
-  tf_model_base_path: "/app/ml_models/"
+  tf_model_base_path: "/app/ml_models/" # This could also be a placeholder if needed
   property_embedding_model_weights: "real_estate/tf_property_model_weights.h5"
   prospect_embedding_model_weights: "real_estate/tf_prospect_model_weights.h5"
   matching_model_weights: "real_estate/tf_matching_model_weights.h5"
   database_connections:
     mls_db:
       type: "postgresql"
-      host: "localhost"
-      port: 5432
-      user: ""
-      password: ""
-      database_name: "mls_data"
+      host: "${MLS_DB_HOST:-localhost}"
+      port: ${MLS_DB_PORT:-5432}
+      user: "${MLS_DB_USER:-}"
+      password: "${MLS_DB_PASS:-}"
+      database_name: "${MLS_DB_NAME:-mls_data}"
     regional_metrics_db:
       type: "sqlite"
-      path: "/path/to/data/real_estate/regional_metrics.db"
+      path: "/path/to/data/real_estate/regional_metrics.db" # Could be ${REGIONAL_DB_PATH:-...}
   real_estate_glossary_path: "path/to/data/real_estate/glossary.json"
   legal_document_templates_path: "path/to/data/real_estate/legal_docs/"
 
@@ -74,28 +65,25 @@ sales_agent_service:
 
 # --- Response Generation ---
 natural_language_generation_service:
-  provider: "local_llama" # Options: "local_llama", "openai_gpt", "anthropic_claude"
+  provider: "local_llama"
   local_llama_settings:
-    model_path: "/path/to/your/llama_model_gguf"
+    model_path: "${LLAMA_MODEL_PATH:-/path/to/your/llama_model_gguf}" # Example for LLM path
     # n_gpu_layers: 0
     # context_size: 2048
   # openai_gpt_settings:
-  #   api_key: ""
+  #   api_key: "${OPENAI_API_KEY:-}"
   #   model_name: "gpt-3.5-turbo"
   # anthropic_claude_settings:
-  #   api_key: ""
+  #   api_key: "${ANTHROPIC_API_KEY:-}"
   #   model_name: "claude-2"
 
 text_to_speech_service:
-  provider: "simulation" # Changed to simulation to avoid API key errors during demo
+  provider: "simulation"
   elevenlabs_settings:
     api_key: "${ELEVENLABS_API_KEY}"
     default_voice_id: "21m00Tcm4TlvDq8ikWAM"
-    # voice_settings:
-    #   stability: 0.75
-    #   similarity_boost: 0.75
   sesame_csm_settings:
-    service_url: "${SESAME_CSM_URL}"
+    service_url: "${SESAME_CSM_URL:-http://default_sesame_url}" # Added default for example
     # timeout: 10
 
 # --- MCPS Platform Integration (Optional - if agent is part of an MCPS) ---
