@@ -10,7 +10,7 @@ application:
 
 # --- Input Processing ---
 speech_to_text_service:
-  provider: "deepgram"
+  provider: "deepgram" # Default will fallback to simulation if DEEPGRAM_API_KEY is not set
   deepgram_settings:
     api_key: "${DEEPGRAM_API_KEY}"
   # google_cloud_stt_settings: (removed, using Deepgram instead)
@@ -87,10 +87,16 @@ natural_language_generation_service:
   #   model_name: "claude-2"
 
 text_to_speech_service:
-  provider: "elevenlabs"
+  provider: "simulation" # Changed to simulation to avoid API key errors during demo
   elevenlabs_settings:
     api_key: "${ELEVENLABS_API_KEY}"
-    default_voice_id: "name"
+    default_voice_id: "21m00Tcm4TlvDq8ikWAM"
+    # voice_settings:
+    #   stability: 0.75
+    #   similarity_boost: 0.75
+  sesame_csm_settings:
+    service_url: "${SESAME_CSM_URL}"
+    # timeout: 10
 
 # --- MCPS Platform Integration (Optional - if agent is part of an MCPS) ---
 # mcps_integration:
