@@ -5,8 +5,11 @@ import yaml
 import time # For simulation delays
 import threading
 import asyncio
-import os # For os.getenv
-import re # For regex parsing of placeholders
+# import os # For os.getenv - Handled by config_utils
+# import re # For regex parsing of placeholders - Handled by config_utils
+
+# Import the resolver utility
+from config_utils import resolve_config_value
 
 # from run_mcps_agent import main as run_mcps # Temporarily commented out
 
@@ -18,48 +21,9 @@ from specialist_empathy_service import EmpathySpecialistService
 from specialist_sales_services import GenericSalesSkillService, RealEstateKnowledgeService, SalesAgentService
 from response_generation_services import NaturalLanguageGenerationService, TextToSpeechService
 
-# Regex to match ${VAR_NAME:-DEFAULT_VALUE} or ${VAR_NAME}
-PLACEHOLDER_REGEX = re.compile(r"\$\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(?::-([^}]*))?\s*\}")
-
-def resolve_config_value(value_from_config, default_if_placeholder_not_set=None, target_type=str):
-    """
-    Resolves a configuration value that might be a placeholder.
-    Placeholders can be ${VAR_NAME} or ${VAR_NAME:-Default Value}.
-    """
-    if isinstance(value_from_config, str):
-        match = PLACEHOLDER_REGEX.fullmatch(value_from_config)
-        if match:
-            var_name = match.group(1)
-            placeholder_default = match.group(2)
-
-            env_value = os.getenv(var_name)
-            if env_value is not None:
-                resolved_value = env_value
-            elif placeholder_default is not None:
-                resolved_value = placeholder_default
-            else:
-                resolved_value = default_if_placeholder_not_set
-        else:
-            resolved_value = value_from_config
-    else:
-        resolved_value = value_from_config
-
-    if resolved_value is None:
-        return None
-    try:
-        if target_type == int:
-            return int(resolved_value)
-        elif target_type == bool:
-            if isinstance(resolved_value, str):
-                return resolved_value.lower() in ('true', 'yes', '1', 'on')
-            return bool(resolved_value)
-        return target_type(resolved_value)
-    except ValueError as e:
-        print(f"Warning: Could not cast resolved value '{resolved_value}' to {target_type}. Error: {e}. Returning as string or None.")
-        return str(resolved_value) if resolved_value is not None else None
-
 
 def load_config(config_path="config.yml"):
+    """Loads the YAML configuration file."""
     try:
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
@@ -82,13 +46,14 @@ class ServiceManager:
         print(f"\nServiceManager: Initializing services for agent type: {self.agent_type}...")
 
         # Pass the entire global config to services that manage their own sub-config directly
+        # or where sub-config extraction is straightforward and doesn't need resolver yet.
         self.twilio_service = TwilioService(config=self.config)
         self.stt_service = SpeechToTextService(config=self.config)
-        self.nlg_service = NaturalLanguageGenerationService(config=self.config)
-        self.tts_service = TextToSpeechService(config=self.config)
-        self.empathy_specialist_service = EmpathySpecialistService(config=self.config)
+        self.nlg_service = NaturalLanguageGenerationService(config=self.config) # Updated to use resolver internally
+        self.tts_service = TextToSpeechService(config=self.config) # Uses resolver internally for keys/URLs
+        self.empathy_specialist_service = EmpathySpecialistService(config=self.config) # Assumes it handles its own config
 
-        # Pass specific sub-configs to services that expect it
+        # Pass specific sub-configs to services that expect it and use resolver internally
         self.acoustic_analyzer_service = AcousticEmotionAnalyzerService(service_config=self.config.get('acoustic_emotion_analyzer_service', {}))
         self.rasa_service = RasaService(service_config=self.config.get('rasa_service', {}))
 
@@ -101,10 +66,8 @@ class ServiceManager:
             if "real_estate" in self.agent_type.lower():
                 self.real_estate_knowledge_service = RealEstateKnowledgeService(service_config=self.config.get('real_estate_knowledge_service', {}))
 
-            # SalesAgentService might need broader config access or specific parts, adjust as needed.
-            # For now, passing global config as it was before.
             self.sales_agent_specialist_service = SalesAgentService(
-                config=self.config,
+                config=self.config, # SalesAgentService might need broader config access
                 generic_sales_service=self.generic_sales_skill_service,
                 real_estate_service=self.real_estate_knowledge_service
             )
@@ -167,6 +130,7 @@ class CallHandler:
         if self.sm.sales_agent_specialist_service:
             sales_agent_service_config = self.config.get('sales_agent_service', {})
             default_stage_raw = sales_agent_service_config.get('default_sales_stage', "greeting")
+            # Use resolve_config_value for default_sales_stage
             sales_context = {
                 "stage": resolve_config_value(default_stage_raw, "greeting"),
                 "prospect_profile": {},
@@ -200,10 +164,11 @@ class CallHandler:
                  sales_context["call_history"].append({"speaker": "agent", "text": response_text})
 
             tts_service_config = self.config.get('text_to_speech_service', {})
-            # Assuming 'sesame_csm_settings' might not exist if provider is not sesame_csm
             sesame_settings = tts_service_config.get('sesame_csm_settings', {})
             default_voice = "professional_warm"
-            voice_profile_from_config = sesame_settings.get('default_voice_profile', default_voice)
+            # Assuming 'default_voice_profile' is a direct value in config or needs resolving if it can be a placeholder
+            voice_profile_from_config = resolve_config_value(sesame_settings.get('default_voice_profile'), default_voice)
+
 
             agent_audio_chunk = self.sm.tts_service.synthesize_speech(
                 response_text,
@@ -228,8 +193,9 @@ class VoiceAgent:
             raise ValueError("Configuration is required to initialize VoiceAgent.")
         self.config = config
         application_config = self.config.get('application', {})
-        # Assuming 'default_agent_type' in config.yml is a direct value, not a placeholder
-        default_agent_type = application_config.get('default_agent_type', "empathy_base")
+        # Resolve default_agent_type as it might also be a placeholder
+        default_agent_type_raw = application_config.get('default_agent_type', "empathy_base")
+        default_agent_type = resolve_config_value(default_agent_type_raw, "empathy_base")
         self.agent_type = agent_type_override if agent_type_override else default_agent_type
 
         print(f"\nInitializing VoiceAgent of type: {self.agent_type}...")

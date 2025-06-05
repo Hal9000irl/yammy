@@ -34,15 +34,15 @@ empathy_specialist_service:
 generic_sales_skill_service:
   model_path: "${GENERIC_SALES_MODEL_PATH:-path/to/generic_sales_model.pkl}"
   playbooks:
-    opening_scripts_path: "path/to/data/sales_training/opening_lines.csv"
-    objection_handling_path: "path/to/data/sales_training/objection_responses.json"
-    closing_techniques_path: "path/to/data/sales_training/closing_playbook.txt"
+    opening_scripts_path: "${GS_PLAYBOOK_OPENING:-path/to/data/sales_training/opening_lines.csv}"
+    objection_handling_path: "${GS_PLAYBOOK_OBJECTION:-path/to/data/sales_training/objection_responses.json}"
+    closing_techniques_path: "${GS_PLAYBOOK_CLOSING:-path/to/data/sales_training/closing_playbook.txt}"
 
 real_estate_knowledge_service:
-  tf_model_base_path: "/app/ml_models/" # This could also be a placeholder if needed
-  property_embedding_model_weights: "real_estate/tf_property_model_weights.h5"
-  prospect_embedding_model_weights: "real_estate/tf_prospect_model_weights.h5"
-  matching_model_weights: "real_estate/tf_matching_model_weights.h5"
+  tf_model_base_path: "${RE_TF_MODEL_BASE_PATH:-/app/ml_models/}"
+  property_embedding_model_weights: "real_estate/tf_property_model_weights.h5" # Assumed relative to tf_model_base_path
+  prospect_embedding_model_weights: "real_estate/tf_prospect_model_weights.h5" # Assumed relative
+  matching_model_weights: "real_estate/tf_matching_model_weights.h5" # Assumed relative
   database_connections:
     mls_db:
       type: "postgresql"
@@ -53,9 +53,9 @@ real_estate_knowledge_service:
       database_name: "${MLS_DB_NAME:-mls_data}"
     regional_metrics_db:
       type: "sqlite"
-      path: "/path/to/data/real_estate/regional_metrics.db" # Could be ${REGIONAL_DB_PATH:-...}
-  real_estate_glossary_path: "path/to/data/real_estate/glossary.json"
-  legal_document_templates_path: "path/to/data/real_estate/legal_docs/"
+      path: "${RE_REGIONAL_DB_PATH:-/path/to/data/real_estate/regional_metrics.db}"
+  real_estate_glossary_path: "${RE_GLOSSARY_PATH:-path/to/data/real_estate/glossary.json}"
+  legal_document_templates_path: "${RE_LEGAL_DOCS_PATH:-path/to/data/real_estate/legal_docs/}"
 
 sales_agent_service:
   default_sales_stage: "greeting"
@@ -67,15 +67,13 @@ sales_agent_service:
 natural_language_generation_service:
   provider: "local_llama"
   local_llama_settings:
-    model_path: "${LLAMA_MODEL_PATH:-/path/to/your/llama_model_gguf}" # Example for LLM path
-    # n_gpu_layers: 0
-    # context_size: 2048
-  # openai_gpt_settings:
-  #   api_key: "${OPENAI_API_KEY:-}"
-  #   model_name: "gpt-3.5-turbo"
-  # anthropic_claude_settings:
-  #   api_key: "${ANTHROPIC_API_KEY:-}"
-  #   model_name: "claude-2"
+    model_path: "${LLAMA_MODEL_PATH:-/path/to/your/llama_model_gguf}"
+  openai_gpt_settings:
+    api_key: "${OPENAI_API_KEY:-}"
+    model_name: "gpt-3.5-turbo"
+  anthropic_claude_settings:
+    api_key: "${ANTHROPIC_API_KEY:-}"
+    model_name: "claude-2"
 
 text_to_speech_service:
   provider: "simulation"
@@ -83,7 +81,7 @@ text_to_speech_service:
     api_key: "${ELEVENLABS_API_KEY}"
     default_voice_id: "21m00Tcm4TlvDq8ikWAM"
   sesame_csm_settings:
-    service_url: "${SESAME_CSM_URL:-http://default_sesame_url}" # Added default for example
+    service_url: "${SESAME_CSM_URL:-http://default_sesame_url}"
     # timeout: 10
 
 # --- MCPS Platform Integration (Optional - if agent is part of an MCPS) ---

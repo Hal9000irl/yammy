@@ -5,18 +5,7 @@ import time # For simulation
 import requests
 import os # For os.getenv
 
-# Attempt to import resolve_config_value from main.
-try:
-    from main import resolve_config_value
-except ImportError:
-    # Fallback basic version if direct import fails (e.g., module run standalone)
-    def resolve_config_value(value_from_config, default_if_placeholder_not_set=None, target_type=str):
-        if isinstance(value_from_config, str) and value_from_config.startswith("${") and value_from_config.endswith("}"):
-            var_name = value_from_config.strip("${}")
-            # Basic resolution without default-in-placeholder support from pattern
-            val = os.getenv(var_name, default_if_placeholder_not_set)
-            return target_type(val) if val is not None and target_type is not None else val
-        return target_type(value_from_config) if value_from_config is not None and target_type is not None else value_from_config
+from config_utils import resolve_config_value
 
 
 class RasaService:
@@ -38,7 +27,6 @@ class RasaService:
         Returns an action plan.
         """
         try:
-            # Ensure server_url is valid before making a request
             if not self.server_url or not (self.server_url.startswith("http://") or self.server_url.startswith("https://")):
                  raise ValueError(f"Invalid Rasa server URL: {self.server_url}")
 
@@ -48,17 +36,17 @@ class RasaService:
             intent = parsed.get("intent", {}).get("name")
             entities = {e.get("entity"): e.get("value") for e in parsed.get("entities", [])}
             print(f"RasaService: Parsed intent='{intent}', entities={entities}")
-        except requests.exceptions.RequestException as e: # Catches network errors, HTTP errors via raise_for_status
+        except requests.exceptions.RequestException as e:
             print(f"RasaService: Communication error with Rasa server ({self.server_url}): {e}")
-            intent = "rasa_communication_error" # Custom intent for this case
+            intent = "rasa_communication_error"
             entities = {}
-        except ValueError as e: # Catches invalid URL
+        except ValueError as e:
              print(f"RasaService: Configuration error: {e}")
              intent = "rasa_configuration_error"
              entities = {}
-        except Exception as e: # Other unexpected errors
+        except Exception as e:
             print(f"RasaService: Error calling Rasa NLU parse: {e}")
-            intent = None # Fallback to default handling
+            intent = None
             entities = {}
 
         current_emotion = acoustic_emotion_input.get('dominant_emotion', 'N/A') if acoustic_emotion_input else 'N/A'
@@ -75,16 +63,13 @@ class RasaService:
 
         lower_text = text_input.lower()
 
-        # Simplified rule-based dialogue logic based on intent or keywords
         if intent == "greet" or "hello" in lower_text or "hi" in lower_text:
-            action_plan["intent"] = "greet" # Ensure intent is set if matched by keyword
+            action_plan["intent"] = "greet"
             action_plan["next_specialist"] = "empathy_specialist"
             action_plan["response_emotion_hint"] = "friendly"
         elif intent == "rasa_communication_error" or intent == "rasa_configuration_error":
-            # If Rasa itself is down or misconfigured, use a safe fallback
-            action_plan["next_specialist"] = "nlg_service" # Generic NLG
+            action_plan["next_specialist"] = "nlg_service"
             action_plan["response_emotion_hint"] = "neutral_apologetic"
-            # Potentially set a specific message like "I'm having trouble understanding right now."
         elif current_emotion == "sad" or intent == "expresses_sadness":
             action_plan["intent"] = "expresses_sadness"
             action_plan["next_specialist"] = "empathy_specialist"
@@ -94,8 +79,7 @@ class RasaService:
             action_plan["next_specialist"] = "empathy_specialist"
             action_plan["response_emotion_hint"] = "calming_empathetic"
         elif intent == "inquire_real_estate" or "sell my house" in lower_text or "property" in lower_text:
-            action_plan["intent"] = "inquire_real_estate" # Ensure intent
-            # Example entity extraction (can be improved or rely on Rasa's if working)
+            action_plan["intent"] = "inquire_real_estate"
             if not entities.get("topic") and "sell" in lower_text: entities["topic"] = "selling"
             if not entities.get("topic") and "buy" in lower_text: entities["topic"] = "buying"
             action_plan["entities"] = entities
@@ -111,8 +95,8 @@ class RasaService:
             action_plan["next_specialist"] = "empathy_specialist"
             action_plan["response_emotion_hint"] = "polite_farewell"
             action_plan["end_call"] = True
-        else: # Default fallback
-            action_plan["intent"] = intent if intent else "fallback" # Use parsed intent if available
+        else:
+            action_plan["intent"] = intent if intent else "fallback"
             action_plan["next_specialist"] = "empathy_specialist"
             action_plan["response_emotion_hint"] = "neutral_helpful"
 
@@ -120,20 +104,39 @@ class RasaService:
         return action_plan
 
 if __name__ == '__main__':
-    # Example of how config would be structured in the main app_config
+    # This sys.path manipulation is for allowing direct execution of the service file
+    # if config_utils is in the parent directory.
+    # It needs to be done before attempting to import from config_utils
+    import sys # Ensure sys is imported if not already
+    if "config_utils" not in sys.modules:
+        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+        try:
+            from config_utils import resolve_config_value as main_resolve_config_value # Use if available
+        except ImportError:
+            # Define the fallback resolve_config_value if it's not available for __main__
+            def main_resolve_config_value(value_from_config, default_if_placeholder_not_set=None, target_type=str):
+                if isinstance(value_from_config, str) and value_from_config.startswith("${") and value_from_config.endswith("}"):
+                    var_name = value_from_config.strip("${}")
+                    val = os.getenv(var_name, default_if_placeholder_not_set)
+                    if target_type == int and val is not None: return int(val)
+                    return val if target_type == str else None
+                if target_type == int and value_from_config is not None: return int(value_from_config)
+                return value_from_config
+            print("Warning: Could not import resolve_config_value from config_utils. Using local fallback for __main__.")
+
+
     dummy_app_config = {
         "rasa_service": {
             "server_url": "${RASA_URL_TEST:-http://simulated-rasa-server:5005}"
         }
     }
-    # Simulate setting an environment variable for testing
     os.environ["RASA_URL_TEST"] = "http://env-rasa-server:5005"
 
-    # Pass only the relevant part of the config to the service
-    rasa = RasaService(service_config=dummy_app_config['rasa_service'])
+    rasa_service_cfg = dummy_app_config['rasa_service']
 
-    # Test with a mock for requests.post if server isn't running
-    # For direct execution, we need to import patch from unittest.mock
+    rasa = RasaService(service_config=rasa_service_cfg)
+    print(f"Rasa server URL in __main__: {rasa.server_url}")
+
     from unittest.mock import patch
     class MockResponse:
         def __init__(self, json_data, status_code):
@@ -149,14 +152,13 @@ if __name__ == '__main__':
                 return MockResponse({"intent": {"name": "greet"}, "entities": []}, 200)
             if "sell my house" in json['text']:
                  return MockResponse({"intent": {"name": "inquire_real_estate"}, "entities": [{"entity":"topic", "value":"selling"}]}, 200)
-        return MockResponse({}, 404) # Default mock response
+        return MockResponse({}, 404)
 
     with patch('requests.post', side_effect=mock_requests_post):
         plan1 = rasa.process_user_message("user123", "Hello there!", {"dominant_emotion": "neutral"})
         plan2 = rasa.process_user_message("user123", "I want to sell my house in the suburbs.", {"dominant_emotion": "excited"})
 
-    print("\nTest Plan 1 (Greet):", plan1) # Should use intent from mock
-    print("Test Plan 2 (Real Estate Inquiry):", plan2) # Should use intent from mock
+    print("\nTest Plan 1 (Greet):", plan1)
+    print("Test Plan 2 (Real Estate Inquiry):", plan2)
 
-    del os.environ["RASA_URL_TEST"] # Clean up
-# Removed the stray ``` marker from the end of the file.
+    del os.environ["RASA_URL_TEST"]

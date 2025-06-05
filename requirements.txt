@@ -5,6 +5,9 @@ tqdm
 pyyaml
 aioredis
 requests
-deepgram-sdk==2.12.0
+deepgram-sdk>=3.0.0,<4.0.0
 httpx
 python-multipart
+torch
+transformers
+sentencepiece

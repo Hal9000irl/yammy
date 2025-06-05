@@ -9,21 +9,7 @@ import logging
 from deepgram import DeepgramClient, DeepgramClientOptions
 from deepgram.clients.prerecorded.v1 import PrerecordedOptions
 
-# Attempt to import resolve_config_value from main. If main is run as script, this might be tricky.
-# A better solution is to have resolve_config_value in a dedicated utils.config module.
-try:
-    from main import resolve_config_value
-except ImportError:
-    # Fallback for scenarios where main isn't directly importable in this way,
-    # or if resolve_config_value is moved later.
-    # This basic version doesn't handle defaults in placeholder or type casting.
-    def resolve_config_value(value_from_config, default_if_placeholder_not_set=None, target_type=str):
-        if isinstance(value_from_config, str) and value_from_config.startswith("${") and value_from_config.endswith("}"):
-            var_name = value_from_config.strip("${}")
-            # Basic resolution without default-in-placeholder support
-            val = os.getenv(var_name, default_if_placeholder_not_set)
-            return target_type(val) if val is not None and target_type is not None else val
-        return target_type(value_from_config) if value_from_config is not None and target_type is not None else value_from_config
+from config_utils import resolve_config_value
 
 
 # Custom Exception for STT errors
@@ -42,29 +28,26 @@ class SpeechToTextService:
         logger.info(f"SpeechToTextService Initialized (Provider: {self.provider}, Settings: {self.settings})")
 
         if self.provider == "deepgram":
-            # API key loading logic already refined in a previous subtask to use placeholders & os.getenv
-            # We'll assume it correctly sets self.settings["api_key"] or relies on DEEPGRAM_API_KEY env var
-            # The following is a simplified version of that refined logic:
-            config_api_key_val = self.settings.get("api_key", "${DEEPGRAM_API_KEY}") # Default to placeholder
-            # The resolve_config_value function should ideally be used here if it were more robustly available.
-            # For now, the pre-existing refined logic for Deepgram key in this service is kept.
+            config_api_key_val = self.settings.get("api_key", "${DEEPGRAM_API_KEY}")
 
-            final_api_key = None
-            if config_api_key_val.startswith("${") and config_api_key_val.endswith("}"):
-                placeholder = config_api_key_val.strip("${}")
-                final_api_key = os.getenv(placeholder)
-                if not final_api_key: logger.warning(f"Environment variable {placeholder} for Deepgram API key not found.")
-            elif config_api_key_val: # Non-empty, non-placeholder
-                logger.warning("A non-placeholder API key was found in config for Deepgram. Prefer ${DEEPGRAM_API_KEY}.")
-                final_api_key = config_api_key_val # Use it but with warning
+            # Using resolve_config_value for Deepgram API key
+            # The refined logic from subtask 12 about warnings for hardcoded keys etc.
+            # could be integrated into resolve_config_value or handled here if needed.
+            # For now, direct use of resolve_config_value for simplicity as per current task scope.
+            final_api_key = resolve_config_value(config_api_key_val, None) # No specific default here, relies on placeholder or env
 
-            if not final_api_key: # Fallback to standard env var if placeholder/direct config failed
+            if not final_api_key: # If placeholder didn't resolve and no direct value
+                 # Attempt to get from a standard environment variable as a last resort
                 standard_env_key = "DEEPGRAM_API_KEY"
                 final_api_key = os.getenv(standard_env_key)
-                if final_api_key: logger.info(f"Used Deepgram API key from {standard_env_key}.")
+                if final_api_key:
+                    logger.info(f"Used Deepgram API key from environment variable {standard_env_key} as placeholder/config value was not found/resolved.")
+                else:
+                    logger.warning(f"No Deepgram API key configured via placeholder '{config_api_key_val}', direct config, or default environment variable {standard_env_key}.")
+
 
             if not final_api_key:
-                logger.warning("SpeechToTextService: No valid Deepgram API key, falling back to simulation mode.")
+                logger.warning("SpeechToTextService: No valid Deepgram API key resolved, falling back to simulation mode.")
                 self.provider = "simulation"
                 self.dg_client = None
                 return
@@ -117,15 +100,12 @@ class SpeechToTextService:
         return text
 
 class AcousticEmotionAnalyzerService:
-    def __init__(self, service_config: dict): # Changed to accept service_config directly
-        # self.config = config.get('acoustic_emotion_analyzer_service', {}) # Old way
-        self.config = service_config # New way
+    def __init__(self, service_config: dict):
+        self.config = service_config
 
-        # Use resolve_config_value for model_path
         raw_model_path = self.config.get('model_path', 'default_emotion_model.pkl')
         self.model_path = resolve_config_value(raw_model_path, default_if_placeholder_not_set='path/to/acoustic_emotion_model.pkl')
 
-        # Sample rate can be fetched directly or also resolved if it could be env-dependent
         self.sample_rate = self.config.get('sample_rate', 22050)
 
         logger = logging.getLogger(__name__)
@@ -150,22 +130,33 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
     main_logger = logging.getLogger(__name__)
 
-    # Create a dummy global config for testing service directly
+    # Temporarily add config_utils to sys.path for direct script execution if needed
+    # This is only for the __main__ block. Services should import it directly.
+    if "config_utils" not in sys.modules:
+        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+        try:
+            from config_utils import resolve_config_value as main_resolve_config_value
+        except ImportError:
+             main_resolve_config_value = resolve_config_value # Use local fallback if still not found
+
     dummy_global_config = {
         "speech_to_text_service": {
             "provider": "deepgram",
             "deepgram_settings": { "api_key": "${DEEPGRAM_API_KEY_TEST}" }
         },
         "acoustic_emotion_analyzer_service": {
-             "model_path": "${ACOUSTIC_MODEL_PATH_TEST:-./fallback_model.pkl}", # Example for testing resolver
+             "model_path": "${ACOUSTIC_MODEL_PATH_TEST:-./fallback_model.pkl}",
              "sample_rate": 16000
         }
     }
     os.environ["DEEPGRAM_API_KEY_TEST"] = "dummy_env_key_for_direct_run"
-    # os.environ["ACOUSTIC_MODEL_PATH_TEST"] = "env_specified_model.pkl" # Optionally set to test env override
 
     stt_service = SpeechToTextService(config=dummy_global_config)
-    aea_service = AcousticEmotionAnalyzerService(service_config=dummy_global_config['acoustic_emotion_analyzer_service'])
+    # Use the main_resolve_config_value for the __main__ block if it was imported
+    # This ensures the __main__ block tests with the "correct" resolver if possible
+    aea_service_config = dummy_global_config['acoustic_emotion_analyzer_service']
+    aea_service_config['model_path'] = main_resolve_config_value(aea_service_config['model_path'], './fallback_model.pkl')
+    aea_service = AcousticEmotionAnalyzerService(service_config=aea_service_config) # Pass resolved for test
 
     main_logger.info(f"AEA Model Path from test: {aea_service.model_path}")
 
@@ -177,7 +168,4 @@ if __name__ == '__main__':
     except STTError as e:
         main_logger.error(f"STTError caught during transcription test in __main__: {e}")
 
-    # Clean up env var for test
     del os.environ["DEEPGRAM_API_KEY_TEST"]
-    # if "ACOUSTIC_MODEL_PATH_TEST" in os.environ: del os.environ["ACOUSTIC_MODEL_PATH_TEST"]
-# Removed the stray ``` marker from the end of the file.
