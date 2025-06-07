@@ -13,8 +13,9 @@ from input_processing_services import SpeechToTextService, STTError, AcousticEmo
 from response_generation_services import TextToSpeechService, TTSError, NaturalLanguageGenerationService
 from dialogue_manager_service import RasaService
 from specialist_empathy_service import EmpathySpecialistService
-from specialist_sales_services import GenericSalesSkillService # Added import
+from specialist_sales_services import GenericSalesSkillService, RealEstateKnowledgeService, SalesAgentService # Added SalesAgentService
 from deepgram.clients.prerecorded.v1 import PrerecordedOptions
+import numpy as np # For RealEstateKnowledgeService tests
 
 # Attempt to import resolve_config_value from config_utils
 try:
@@ -458,7 +459,7 @@ class TestNaturalLanguageGenerationService(unittest.TestCase):
         self.env_var_name = "LLAMA_MODEL_TEST"
 
     def tearDown(self): # Corrected: This will hold the original value for the specific test method context
-        if hasattr(self, f"original_env_val_{self.env_var_name}"):
+        if hasattr(self, f"original_env_val_{self.env_var_name}"): # Check for specific test method's backup
             original_val = getattr(self, f"original_env_val_{self.env_var_name}")
             if original_val is None:
                 if self.env_var_name in os.environ:
@@ -635,6 +636,352 @@ class TestRasaService(unittest.TestCase):
         self.assertEqual(action_plan["intent"], "rasa_configuration_error")
         self.assertEqual(action_plan["next_specialist"], "nlg_service")
         self.assertTrue(any("RasaService: Configuration error: Invalid Rasa server URL: rasa_server_no_http" in call_args[0][0] for call_args in mock_print.call_args_list))
+
+
+# No module-level patches for tf, sqlite3, psycopg2 needed for current RealEstateKnowledgeService implementation
+# as it doesn't import or use them directly at module level or load models/DBs in __init__.
+class TestRealEstateKnowledgeService(unittest.TestCase):
+    def setUp(self):
+        self.sample_re_config = {
+            "tf_model_base_path": "${RE_TF_MODEL_BASE_PATH:-/app/ml_models/}",
+            "property_embedding_model_weights": "prop_embed.h5", # Not used in current init
+            "prospect_embedding_model_weights": "prospect_embed.h5", # Not used in current init
+            "matching_model_weights": "matching_model.h5", # Not used in current init
+            "database_connections": {
+                "mls_db": {
+                    "type": "postgresql",
+                    "host": "${MLS_DB_HOST:-localhost}",
+                    "port": "${MLS_DB_PORT:-5432}",
+                    "user": "${MLS_DB_USER:-user}",
+                    "password": "${MLS_DB_PASS:-pass}",
+                    "database_name": "${MLS_DB_NAME:-db}"
+                },
+                "regional_metrics_db": {
+                    "type": "sqlite",
+                    "path": "${RE_REGIONAL_DB_PATH:-/regional.db}"
+                }
+            },
+            "real_estate_glossary_path": "${RE_GLOSSARY_PATH:-glossary.json}",
+            "legal_document_templates_path": "${RE_LEGAL_DOCS_PATH:-legal_docs/}"
+        }
+        self.logger_name_reks = "specialist_sales_services"
+
+        # These mocks are not needed for the current __init__ test, but might be useful later
+        # self.mock_prop_embed_model = MagicMock()
+        # self.mock_prospect_embed_model = MagicMock()
+        # self.mock_matching_model = MagicMock()
+
+    @patch('specialist_sales_services.resolve_config_value') # Patched where it's looked up by the service
+    # No os.path.exists or tf.keras.models.load_model or db.connect patches needed for current __init__
+    def test_initialization_config_resolution_and_mocked_loading(
+        self, mock_resolve_config_value # Only mock_resolve_config_value is needed now
+    ):
+        resolved_tf_base_path = "/resolved/app/ml_models/"
+        resolved_regional_db_path = "/resolved/regional.db"
+        resolved_glossary_path = "/resolved/glossary.json"
+        resolved_legal_docs_path = "/resolved/legal_docs/"
+        resolved_db_host = "resolved_host"
+        resolved_db_port_str = "1234"
+        resolved_db_port_int = 1234
+        resolved_db_user = "resolved_user"
+        resolved_db_pass = "resolved_pass"
+        resolved_db_name = "resolved_dbname"
+
+        # CORRECTED SIGNATURE HERE:
+        def resolve_side_effect(value_from_config, default_if_placeholder_not_set=None, target_type=str):
+            # Debug print to see call arguments:
+            # print(f"resolve_config_value CALLED WITH: ('{value_from_config}', default='{default_if_placeholder_not_set}', type={target_type})")
+            if value_from_config == self.sample_re_config["tf_model_base_path"]:
+                return resolved_tf_base_path
+            elif value_from_config == self.sample_re_config["database_connections"]["mls_db"]["host"]:
+                return resolved_db_host
+            elif value_from_config == self.sample_re_config["database_connections"]["mls_db"]["port"]:
+                return resolved_db_port_int if target_type is int else resolved_db_port_str
+            elif value_from_config == self.sample_re_config["database_connections"]["mls_db"]["user"]:
+                return resolved_db_user
+            elif value_from_config == self.sample_re_config["database_connections"]["mls_db"]["password"]:
+                return resolved_db_pass
+            elif value_from_config == self.sample_re_config["database_connections"]["mls_db"]["database_name"]:
+                return resolved_db_name
+            elif value_from_config == self.sample_re_config["database_connections"]["regional_metrics_db"]["path"]:
+                return resolved_regional_db_path
+            elif value_from_config == self.sample_re_config["real_estate_glossary_path"]:
+                return resolved_glossary_path
+            elif value_from_config == self.sample_re_config["legal_document_templates_path"]:
+                return resolved_legal_docs_path
+            # Fallback for any other unexpected call to resolve_config_value
+            return f"UNMOCKED_CONFIG_VALUE_PASSED_TO_RESOLVE:_{value_from_config}"
+
+
+        mock_resolve_config_value.side_effect = resolve_side_effect
+
+        service = RealEstateKnowledgeService(service_config=self.sample_re_config)
+
+        self.assertEqual(service.tf_model_base_path, resolved_tf_base_path)
+        # Corrected attribute names based on RealEstateKnowledgeService.__init__
+        self.assertEqual(service.regional_db_path, resolved_regional_db_path)
+        self.assertEqual(service.real_estate_glossary_path, resolved_glossary_path)
+        self.assertEqual(service.legal_document_templates_path, resolved_legal_docs_path)
+
+        expected_mls_db_settings = {
+            "type": "postgresql", # This is a default in the service's __init__
+            "host": resolved_db_host,
+            "port": resolved_db_port_int, # Stored as int
+            "user": resolved_db_user,
+            "password": resolved_db_pass,
+            "database_name": resolved_db_name
+        }
+        self.assertEqual(service.mls_db_settings, expected_mls_db_settings)
+
+        # Assertions for resolve_config_value calls based on RealEstateKnowledgeService.__init__
+        # The order of these calls in the __init__ method matters for assert_has_calls.
+        # CORRECTED unittest.mock.call arguments
+        calls = [
+            unittest.mock.call(self.sample_re_config['tf_model_base_path'], default_if_placeholder_not_set='/app/ml_models/'),
+            unittest.mock.call(self.sample_re_config['database_connections']['mls_db']['host'], "localhost"),
+            unittest.mock.call(self.sample_re_config['database_connections']['mls_db']['port'], 5432, target_type=int),
+            unittest.mock.call(self.sample_re_config['database_connections']['mls_db']['user'], ""),
+            unittest.mock.call(self.sample_re_config['database_connections']['mls_db']['password'], ""),
+            unittest.mock.call(self.sample_re_config['database_connections']['mls_db']['database_name'], "mls_data"),
+            unittest.mock.call(self.sample_re_config['database_connections']['regional_metrics_db']['path'], "/path/to/data/real_estate/regional_metrics.db"),
+            unittest.mock.call(self.sample_re_config['real_estate_glossary_path'], "path/to/data/real_estate/glossary.json"),
+            unittest.mock.call(self.sample_re_config['legal_document_templates_path'], "path/to/data/real_estate/legal_docs/")
+        ]
+        mock_resolve_config_value.assert_has_calls(calls, any_order=False)
+        self.assertEqual(mock_resolve_config_value.call_count, len(calls))
+
+    def test_get_property_details_simulated_response(self):
+        """
+        Tests the get_property_details method for its current simulated response.
+        """
+        service = RealEstateKnowledgeService(service_config=self.sample_re_config)
+        address_input = "123 Main St"
+        expected_output = {
+            "address": address_input,
+            "price": 500000,
+            "beds": 3,
+            "baths": 2,
+            "sqft": 1800,
+            "status": "Available",
+            "description": "Charming colonial in a quiet neighborhood."
+        }
+
+        # Patch print to check log messages if necessary
+        with patch('specialist_sales_services.print') as mock_print:
+            actual_output = service.get_property_details(address_input)
+
+        self.assertEqual(actual_output, expected_output)
+        mock_print.assert_any_call(f"RealEstateKnowledge: Getting details for '{address_input}'.")
+
+    def test_find_matching_properties_simulated_response(self):
+        """
+        Tests the find_matching_properties method for its current simulated response.
+        """
+        service = RealEstateKnowledgeService(service_config=self.sample_re_config)
+        prospect_profile_input = {'name': 'Test Prospect', 'budget': 750000}
+        expected_output = [
+            {"address": "123 Elm Street, Springfield", "price": 760000, "beds": 4, "baths": 3, "sqft": 2500, "match_score": 0.92, "reason": "Great location fit and features, slightly above ideal budget but high overall match."},
+            {"address": "456 Oak Avenue, Springfield", "price": 720000, "beds": 3, "baths": 2.5, "sqft": 2200, "match_score": 0.88, "reason": "Excellent price fit, good style match, meets all core needs."},
+        ]
+
+        with patch('specialist_sales_services.print') as mock_print:
+            actual_output = service.find_matching_properties(prospect_profile_input)
+
+        self.assertEqual(actual_output, expected_output)
+        mock_print.assert_any_call(f"RealEstateKnowledge: Finding matches for prospect: {prospect_profile_input['name']}")
+
+    def test_get_market_analysis_simulated_response(self):
+        """
+        Tests the get_market_analysis method for its current simulated response.
+        """
+        service = RealEstateKnowledgeService(service_config=self.sample_re_config)
+        area_criteria_input = {'location': 'Springfield Downtown'}
+        expected_output = {
+            "area": area_criteria_input['location'],
+            "avg_price": 650000,
+            "trend": "stable",
+            "days_on_market": 35,
+            "advice": "A steady market."
+        }
+
+        with patch('specialist_sales_services.print') as mock_print:
+            actual_output = service.get_market_analysis(area_criteria_input)
+
+        self.assertEqual(actual_output, expected_output)
+        mock_print.assert_any_call(f"RealEstateKnowledge: Getting market analysis for area: {area_criteria_input['location']}")
+
+
+class TestSalesAgentService(unittest.TestCase):
+    def setUp(self):
+        self.mock_app_config = { # Simulating the structure of the main app_config
+            "sales_agent_service": {
+                "default_sales_stage": "${DEFAULT_STAGE:-greeting}"
+            }
+        }
+        self.mock_generic_sales_service = MagicMock(spec=GenericSalesSkillService)
+        self.mock_real_estate_service = MagicMock(spec=RealEstateKnowledgeService)
+
+        # We need to resolve the config for SalesAgentService before passing it
+        # For the test, we can manually provide the resolved part or mock resolve_config_value here too
+        # Assuming 'greeting' is the expected resolved default for this test setup
+
+        # Patch resolve_config_value just for the instantiation of SalesAgentService in setUp
+        # to ensure 'default_sales_stage' is resolved predictably.
+        with patch('specialist_sales_services.resolve_config_value', return_value="greeting") as mock_resolve_for_setup:
+            self.sales_agent_service = SalesAgentService(
+                config=self.mock_app_config, # Pass the whole app_config
+                generic_sales_service=self.mock_generic_sales_service,
+                real_estate_service=self.mock_real_estate_service
+            )
+            # Check if resolve_config_value was called during setup as expected
+            mock_resolve_for_setup.assert_called_once_with(
+                self.mock_app_config['sales_agent_service'].get('default_sales_stage', "greeting"), "greeting"
+            )
+
+        self.logger_name_sas = "specialist_sales_services" # Assuming logger name from service file
+
+    def test_initialization(self):
+        """
+        Tests that the SalesAgentService initializes with its dependencies and default stage.
+        """
+        self.assertIs(self.sales_agent_service.generic_sales, self.mock_generic_sales_service)
+        self.assertIs(self.sales_agent_service.real_estate, self.mock_real_estate_service)
+        # The default_sales_stage is resolved during __init__
+        # Based on the setup patch, it should be "greeting"
+        self.assertEqual(self.sales_agent_service.default_sales_stage, "greeting")
+        # If current_stage is set directly from default_sales_stage in init without further logic:
+        # self.assertEqual(self.sales_agent_service.current_stage, "greeting")
+        # However, SalesAgentService.__init__ does not set current_stage. It's set in generate_sales_response.
+
+    def test_generate_sales_response_greeting_stage(self):
+        """
+        Tests response generation when in the 'greeting' stage.
+        """
+        sales_context = {"stage": "greeting", "prospect_profile": {"type": "warm_lead"}}
+        user_input = {"text": "Hello", "intent": "greet"}
+        expected_opening_line = "Mocked opening line for warm lead."
+
+        self.mock_generic_sales_service.get_opening_line.return_value = expected_opening_line
+
+        # The method modifies sales_context in-place and returns only the response string.
+        response_text = self.sales_agent_service.generate_sales_response(
+            sales_context, user_input, {} # empty dict for emotion_data
+        )
+
+        self.mock_generic_sales_service.get_opening_line.assert_called_once_with(
+            sales_context.get("prospect_profile")
+        )
+        self.assertEqual(response_text, expected_opening_line)
+        self.assertEqual(sales_context["stage"], "discovery_initial") # Check context modification
+
+    def test_generate_sales_response_handles_objection(self):
+        """
+        Tests response generation when handling a user objection.
+        Assumes SalesAgentService delegates to GenericSalesSkillService.
+        """
+        sales_context = {"stage": "presentation", "some_key": "some_value"}
+        user_input = {"text": "It's too expensive", "intent": "inform_objection"}
+        expected_objection_response = "Mocked objection response to price."
+
+        self.mock_generic_sales_service.handle_objection.return_value = expected_objection_response
+
+        response_text = self.sales_agent_service.generate_sales_response(
+            sales_context, user_input, {}
+        )
+
+        # This assertion will likely fail with current SalesAgentService implementation
+        self.mock_generic_sales_service.handle_objection.assert_called_once_with(
+            objection_text=user_input["text"],
+            sales_context=sales_context # The service passes the whole context
+        )
+        self.assertEqual(response_text, expected_objection_response)
+        # Optionally, assert if the stage should change or remain the same
+        # self.assertEqual(sales_context["stage"], "presentation_objection_handled")
+
+    def test_generate_sales_response_property_query_uses_re_service(self):
+        """
+        Tests response generation for a property query, expecting delegation
+        to RealEstateKnowledgeService.
+        """
+        sales_context = {"stage": "discovery", "current_property_discussion": None}
+        user_input = {
+            "text": "Tell me about 123 Main St",
+            "intent": "query_property",
+            "entities": {"property_id": "123 Main St"}
+        }
+        expected_property_details = "Details for 123 Main St: It's lovely and spacious."
+
+        self.mock_real_estate_service.get_property_details.return_value = expected_property_details
+
+        response_text = self.sales_agent_service.generate_sales_response(
+            sales_context, user_input, {}
+        )
+
+        # This assertion will likely fail with current SalesAgentService implementation
+        self.mock_real_estate_service.get_property_details.assert_called_once_with(
+            address_or_mls=user_input["entities"]["property_id"]
+        )
+        self.assertEqual(response_text, expected_property_details)
+        # Assuming the service updates the context with the property details it fetched (or the fact it discussed it)
+        # This part of the assertion depends on the exact design of context update logic.
+        # For example, it might store the returned string or a structured version:
+        # self.assertEqual(sales_context["current_property_discussion"], expected_property_details)
+        # Or simply:
+        self.assertIsNotNone(sales_context.get("current_property_discussion"), "Context should be updated after property query.")
+        # Let's refine this based on actual (future) implementation if it stores something specific.
+        # For now, just checking it's not None might be too vague if it doesn't store anything.
+        # If the service is designed to put the *result* of get_property_details into context:
+        # self.assertEqual(sales_context["current_property_discussion"], expected_property_details)
+
+    def test_generate_sales_response_closing_stage(self):
+        """
+        Tests response generation during the closing stage, expecting delegation
+        to GenericSalesSkillService for a closing technique.
+        """
+        sales_context = {"stage": "closing_arguments", "strong_interest_expressed": True}
+        user_input = {"text": "I'm ready to proceed", "intent": "affirm"}
+        expected_closing_response = "Mocked closing technique: Let's sign the papers!"
+
+        self.mock_generic_sales_service.suggest_closing_technique.return_value = expected_closing_response
+
+        response_text = self.sales_agent_service.generate_sales_response(
+            sales_context, user_input, {}
+        )
+
+        # This assertion will likely fail with current SalesAgentService implementation
+        self.mock_generic_sales_service.suggest_closing_technique.assert_called_once_with(
+            sales_context=sales_context
+        )
+        self.assertEqual(response_text, expected_closing_response)
+        # Optionally, assert context changes, e.g., stage moving to "deal_closed"
+        # self.assertEqual(sales_context["stage"], "deal_closed")
+
+    def test_generate_sales_response_fallback_if_no_specific_handler(self):
+        """
+        Tests the fallback response when no specific handler for the intent/stage is met.
+        """
+        sales_context = {"stage": "some_undefined_stage", "some_key": "some_value"}
+        user_input = {"text": "Random comment", "intent": "inform"}
+
+        # Since this is testing fallback, we ensure specific handlers are NOT called.
+        # The mocks are already configured in setUp to be MagicMocks.
+
+        response_text = self.sales_agent_service.generate_sales_response(
+            sales_context, user_input, {}
+        )
+
+        # Assert that specific delegation methods were NOT called
+        self.mock_generic_sales_service.get_opening_line.assert_not_called()
+        self.mock_generic_sales_service.handle_objection.assert_not_called()
+        self.mock_generic_sales_service.suggest_closing_technique.assert_not_called()
+        self.mock_real_estate_service.get_property_details.assert_not_called()
+        self.mock_real_estate_service.find_matching_properties.assert_not_called()
+        self.mock_real_estate_service.get_market_analysis.assert_not_called()
+
+        # Assert the expected fallback response
+        self.assertEqual(response_text, "Sales response based on intent and stage.")
+        # Context stage should not have been modified from "some_undefined_stage" by the fallback
+        self.assertEqual(sales_context["stage"], "some_undefined_stage")
 
 
 if __name__ == '__main__':

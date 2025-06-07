@@ -11,3 +11,6 @@ python-multipart
 torch
 transformers
 sentencepiece
+assemblyai
+pytest-asyncio
+python-dotenv

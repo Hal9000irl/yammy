@@ -3,8 +3,7 @@ import os
 
 from mcps.config_loader import MCPSConfigurationService
 from mcps.communication_bus import InMemoryMessageBus
-from mcps.context_repository import ContextRepository
-from mcps.mcps_core.services.context_ingestment import ContextIngestionEngine
+from mcps.context_repository import ContextRepository, ContextIngestionEngine # Corrected import
 from mcps.mcps_core.services.action_dispatch import ActionDispatchService
 
 async def main():

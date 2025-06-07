@@ -5,8 +5,15 @@ import yaml
 import time # For simulation delays
 import threading
 import asyncio
-# import os # For os.getenv - Handled by config_utils
-# import re # For regex parsing of placeholders - Handled by config_utils
+import os # For os.getenv
+import sys # Added for stderr printing
+# import re # For regex parsing of placeholders - Handled by config_utils # re is used by resolve_config_value if it were here
+
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+# This should be one of the first things to do
+load_dotenv()
 
 # Import the resolver utility
 from config_utils import resolve_config_value
@@ -49,9 +56,9 @@ class ServiceManager:
         # or where sub-config extraction is straightforward and doesn't need resolver yet.
         self.twilio_service = TwilioService(config=self.config)
         self.stt_service = SpeechToTextService(config=self.config)
-        self.nlg_service = NaturalLanguageGenerationService(config=self.config) # Updated to use resolver internally
-        self.tts_service = TextToSpeechService(config=self.config) # Uses resolver internally for keys/URLs
-        self.empathy_specialist_service = EmpathySpecialistService(config=self.config) # Assumes it handles its own config
+        self.nlg_service = NaturalLanguageGenerationService(config=self.config)
+        self.tts_service = TextToSpeechService(config=self.config)
+        self.empathy_specialist_service = EmpathySpecialistService(config=self.config)
 
         # Pass specific sub-configs to services that expect it and use resolver internally
         self.acoustic_analyzer_service = AcousticEmotionAnalyzerService(service_config=self.config.get('acoustic_emotion_analyzer_service', {}))
@@ -67,7 +74,7 @@ class ServiceManager:
                 self.real_estate_knowledge_service = RealEstateKnowledgeService(service_config=self.config.get('real_estate_knowledge_service', {}))
 
             self.sales_agent_specialist_service = SalesAgentService(
-                config=self.config, # SalesAgentService might need broader config access
+                config=self.config,
                 generic_sales_service=self.generic_sales_skill_service,
                 real_estate_service=self.real_estate_knowledge_service
             )
@@ -130,7 +137,6 @@ class CallHandler:
         if self.sm.sales_agent_specialist_service:
             sales_agent_service_config = self.config.get('sales_agent_service', {})
             default_stage_raw = sales_agent_service_config.get('default_sales_stage', "greeting")
-            # Use resolve_config_value for default_sales_stage
             sales_context = {
                 "stage": resolve_config_value(default_stage_raw, "greeting"),
                 "prospect_profile": {},
@@ -166,7 +172,6 @@ class CallHandler:
             tts_service_config = self.config.get('text_to_speech_service', {})
             sesame_settings = tts_service_config.get('sesame_csm_settings', {})
             default_voice = "professional_warm"
-            # Assuming 'default_voice_profile' is a direct value in config or needs resolving if it can be a placeholder
             voice_profile_from_config = resolve_config_value(sesame_settings.get('default_voice_profile'), default_voice)
 
 
@@ -193,7 +198,6 @@ class VoiceAgent:
             raise ValueError("Configuration is required to initialize VoiceAgent.")
         self.config = config
         application_config = self.config.get('application', {})
-        # Resolve default_agent_type as it might also be a placeholder
         default_agent_type_raw = application_config.get('default_agent_type', "empathy_base")
         default_agent_type = resolve_config_value(default_agent_type_raw, "empathy_base")
         self.agent_type = agent_type_override if agent_type_override else default_agent_type
@@ -211,7 +215,35 @@ if __name__ == "__main__":
     app_config = load_config()
 
     if app_config:
-        print("*"*10 + " DEMO: Base Empathetic Agent " + "*"*10)
+        # Optional MCPS integration
+        mcps_config = app_config.get('mcps_integration', {})
+        mcps_enabled = resolve_config_value(mcps_config.get('enabled'), target_type=bool, default_if_placeholder_not_set=False)
+        mcps_server_url_resolved = resolve_config_value(mcps_config.get('mcps_server_url'), default_if_placeholder_not_set="local_url_not_set")
+
+        if mcps_enabled: # Check mcps_enabled directly, app_config is already confirmed
+            print(f"MCPS integration is enabled. Attempting to start MCPS agent. (MCPS Server URL from config: {mcps_server_url_resolved})")
+            try:
+                import run_mcps_agent # Test simple import first
+                run_mcps = run_mcps_agent.main # Then access main
+                # Ensure threading and asyncio are imported (already done at top of main.py)
+
+                # Define a wrapper for the thread target to handle asyncio loop
+                def mcps_thread_target():
+                    try:
+                        asyncio.run(run_mcps())
+                    except Exception as e:
+                        print(f"Error in MCPS thread: {e}", file=sys.stderr)
+
+                threading.Thread(target=mcps_thread_target, daemon=True).start()
+                print("MCPS agent thread started.")
+            except ImportError as e:
+                print(f"Failed to import or start MCPS agent: {e}", file=sys.stderr)
+            except Exception as e:
+                print(f"An unexpected error occurred while trying to start MCPS agent: {e}", file=sys.stderr)
+        else:
+            print("MCPS integration is not enabled in the configuration.")
+
+        print("\n" + "*"*10 + " DEMO: Base Empathetic Agent " + "*"*10)
         base_empathy_agent = VoiceAgent(config=app_config, agent_type_override="empathy_base")
         base_empathy_agent.simulate_call_interaction(call_sid="empathy_call_001", num_turns=3)
 

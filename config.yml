@@ -10,9 +10,11 @@ application:
 
 # --- Input Processing ---
 speech_to_text_service:
-  provider: "deepgram" # Default will fallback to simulation if DEEPGRAM_API_KEY is not set
-  deepgram_settings:
+  provider: "assemblyai" # Changed provider to AssemblyAI
+  deepgram_settings: # Can be left or commented out
     api_key: "${DEEPGRAM_API_KEY}"
+  assembly_ai_settings:
+    api_key: "${ASSEMBLYAI_API_KEY:-}" # Added placeholder
 
 acoustic_emotion_analyzer_service:
   model_path: "${ACOUSTIC_EMOTION_MODEL_PATH:-path/to/acoustic_emotion_model.pkl}"
@@ -40,9 +42,9 @@ generic_sales_skill_service:
 
 real_estate_knowledge_service:
   tf_model_base_path: "${RE_TF_MODEL_BASE_PATH:-/app/ml_models/}"
-  property_embedding_model_weights: "real_estate/tf_property_model_weights.h5" # Assumed relative to tf_model_base_path
-  prospect_embedding_model_weights: "real_estate/tf_prospect_model_weights.h5" # Assumed relative
-  matching_model_weights: "real_estate/tf_matching_model_weights.h5" # Assumed relative
+  property_embedding_model_weights: "real_estate/tf_property_model_weights.h5"
+  prospect_embedding_model_weights: "real_estate/tf_prospect_model_weights.h5"
+  matching_model_weights: "real_estate/tf_matching_model_weights.h5"
   database_connections:
     mls_db:
       type: "postgresql"

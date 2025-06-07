@@ -8,11 +8,15 @@ import time
 import uuid # For generating unique IDs for simulated events
 from typing import Dict, Any, Optional, Callable, List
 
-# Relative imports for modules within the mcps_core package
-from ..data_models import InterAgentMessageModel
-from ..communication_bus import IMessageBus
-from ..context_repository import IContextRepository
-from ..config_loader import MCPSConfigurationService # Corrected import name
+# Relative imports for modules within the mcps package
+from .data_models import InterAgentMessageModel
+from .communication_bus import IMessageBus
+from .config_loader import MCPSConfigurationService
+from typing import Any # Added for IContextRepository placeholder
+IContextRepository = Any # Placeholder to resolve NameError
+
+# IContextRepository is likely defined in this file or an ABC, an import like this is not needed.
+# from . import IContextRepository # If IContextRepository were in mcps/__init__.py
 
 # Configure logger for this module
 logger = logging.getLogger("mcps_core.services.context_ingestion")
