@@ -13,7 +13,10 @@ class RasaService:
         self.config = config.get('rasa_service', {})
         self.server_url = self.config.get('server_url', 'http://localhost:5005')
         # self.model_path = self.config.get('model_path') # If loading model directly
-        print(f"RasaService Initialized (Server URL: {self.server_url})")
+        if self.config.get('server_url') is None: # Or if it's the default
+            print(f"INFO: RasaService: No specific server_url found in config, using default: {self.server_url}. Ensure Rasa server is running at this base URL.")
+        else:
+            print(f"RasaService Initialized (Server Base URL: {self.server_url})")
         # Real: Load Rasa agent or configure API client to Rasa server
         # Example: from rasa.core.agent import Agent
         # if self.model_path: self.agent = Agent.load(self.model_path)

@@ -23,7 +23,7 @@ acoustic_emotion_analyzer_service:
 
 # --- Core Logic / Dialogue Management ---
 rasa_service:
-  server_url: "rasa_server" # URL of your Rasa server
+  server_url: "http://localhost:5005" # URL of your Rasa server
   # model_path: "/path/to/your/rasa_model.tar.gz"
 
 # --- Specialist Modules / Tools ---
