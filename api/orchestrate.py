@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, Request
 import yaml
 from dialogue_manager_service import RasaService

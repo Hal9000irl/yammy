@@ -1,0 +1,4 @@
+application:
+  log_level: "DEBUG"
+rasa_service:
+  server_url: "http://localhost:5005"

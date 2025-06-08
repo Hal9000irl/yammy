@@ -1,0 +1,5 @@
+application:
+  log_level: "DEBUG"
+rasa_service:
+  server_url: "http://localhost:5005
+# Missing closing quote, making it invalid YAML
